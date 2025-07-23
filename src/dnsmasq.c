@@ -16,7 +16,7 @@
 
 /* Declare static char *compiler_opts  in config.h */
 #define DNSMASQ_COMPILE_OPTS
-
+#define CACHE_SOCKET_PATH "/infroot/workdir/dnsproxy_to_click"
 /* dnsmasq.h has to be included first as it sources config.h */
 #include "dnsmasq.h"
 
@@ -40,6 +40,64 @@ static void async_event(int pipe, time_t now);
 static void fatal_event(struct event_desc *ev, char *msg);
 static int read_event(int fd, struct event_desc *evp, char **msg);
 static void poll_resolv(int force, int do_reload, time_t now);
+
+int cache_listener_sockfd = -1;
+
+static int connect_to_dp(void) {
+    struct sockaddr_un addr;
+    int sockfd = -1;
+
+    memset(&addr, 0, sizeof(addr));
+    addr.sun_family = AF_UNIX;
+    strncpy(addr.sun_path, CACHE_SOCKET_PATH, sizeof(addr.sun_path) - 1);
+
+    sockfd = socket(AF_UNIX, SOCK_SEQPACKET, 0);
+    if (sockfd < 0) {
+        my_syslog(LOG_ERR, "DNSMasq: socket() failed: %s", strerror(errno));
+        return -1;
+    }
+
+    if (connect(sockfd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+        my_syslog(LOG_ERR, "DNSMasq: connect() failed: %s", strerror(errno));
+        close(sockfd);
+        return -1;
+    }
+
+    my_syslog(0, "DNSMasq: Connected to Data Plane on %s.", CACHE_SOCKET_PATH);
+    return sockfd;
+}
+
+static void *monitor_dp_socket(void *arg) {
+    char dummy;
+    while (1) {
+        if (cache_listener_sockfd < 0) {
+            for (int attempt = 0; attempt < 5; ++attempt) {
+                cache_listener_sockfd = connect_to_dp();
+                if (cache_listener_sockfd >= 0)
+                    break;
+                sleep(1 << attempt);
+            }
+        }
+
+        if (cache_listener_sockfd >= 0) {
+            int ret = recv(cache_listener_sockfd, &dummy, 1, MSG_PEEK | MSG_DONTWAIT);
+
+            if (ret == 0) {
+                my_syslog(LOG_ERR, "DNSMasq: socket closed by peer (EOF).");
+                close(cache_listener_sockfd);
+                cache_listener_sockfd = -1;
+            } else if (ret < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
+                my_syslog(LOG_ERR, "DNSMasq: socket error: %s", strerror(errno));
+                close(cache_listener_sockfd);
+                cache_listener_sockfd = -1;
+            } else {
+                sleep(1);
+            }
+        }
+    }
+
+    return NULL;
+}
 
 int main (int argc, char **argv)
 {
@@ -1087,6 +1145,13 @@ int main (int argc, char **argv)
   poll_resolv(1, 0, now);
 #endif
   
+  pthread_t tid;
+  if (pthread_create(&tid, NULL, monitor_dp_socket, NULL) != 0) {
+      my_syslog(LOG_ERR, "DNSMasq: failed to create monitor thread: %s", strerror(errno));
+      exit(EXIT_FAILURE);
+  }
+  pthread_detach(tid);
+
   while (1)
     {
       int timeout = fast_retry(now);

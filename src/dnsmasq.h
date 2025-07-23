@@ -1948,3 +1948,5 @@ int add_update_server(int flags,
 		      const char *interface,
 		      const char *domain,
 		      union all_addr *local_addr); 
+extern int cache_listener_sockfd;
+void init_cache_listener_socket(void);

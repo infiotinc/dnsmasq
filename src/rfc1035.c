@@ -622,6 +622,7 @@ static int find_soa(struct dns_header *header, size_t qlen, char *name, int *sub
 		      blockdata_free(addr.rrblock.rrdata);
 		      return 0;
 		    }
+		  send_dns_data_to_dp(name + prefix, &addr, ttl, F_FORWARD | F_RR | F_KEYTAG | secflag);
 		}
 	      
 	      p += 16; /* SERIAL REFRESH RETRY EXPIRE */
@@ -695,6 +696,7 @@ int extract_addresses(struct dns_header *header, size_t qlen, char *name, time_t
   int j, qtype, qclass, aqtype, aqclass, ardlen, res;
   unsigned long ttl;
   union all_addr addr;
+  char original_name[MAXDNAME];
 #ifdef HAVE_IPSET
   char **ipsets_cur;
 #else
@@ -714,7 +716,10 @@ int extract_addresses(struct dns_header *header, size_t qlen, char *name, time_t
   
   if (ntohs(header->qdcount) != 1 || !extract_name(header, qlen, &p, name, EXTR_NAME_EXTRACT, 4))
     return 2; /* bad packet */
-  
+ 
+  strncpy(original_name, name, sizeof(original_name) - 1);
+  original_name[sizeof(original_name) - 1] = '\0';
+
   GETSHORT(qtype, p); 
   GETSHORT(qclass, p);
   
@@ -768,7 +773,7 @@ int extract_addresses(struct dns_header *header, size_t qlen, char *name, time_t
 		return 2;
 	      log_query(name_encoding | secflag | F_REVERSE | F_UPSTREAM, name, &addr, NULL, 0);
 	      cache_insert(name, &addr, C_IN, now, ttl, name_encoding | secflag | F_REVERSE);
-	      
+	      send_dns_data_to_dp(name, &addr, ttl, name_encoding | secflag | F_REVERSE);
 	      /* restore query into name */
 	      p1 = namep;
 	      if (!extract_name(header, qlen, &p1, name, EXTR_NAME_EXTRACT, 0))
@@ -867,7 +872,7 @@ int extract_addresses(struct dns_header *header, size_t qlen, char *name, time_t
 			  cpp->addr.cname.uid = newc->uid;
 			}
 		    }
-		  
+                  send_dns_data_to_dp(original_name, &addr, ttl,  F_CNAME | F_FORWARD | secflag);
 		  cpp = newc;
 		}
 	      
@@ -1041,7 +1046,7 @@ int extract_addresses(struct dns_header *header, size_t qlen, char *name, time_t
 		      cpp->addr.cname.uid = newc->uid;
 		    }
 		  cpp = NULL;
-		  
+		  send_dns_data_to_dp(original_name, &addr, ttl, flags | F_FORWARD | secflag);
 		  /* cache insert failed, don't leak blockdata. */
 		  if (!newc && (flags & F_RR) && (flags & F_KEYTAG))
 		    blockdata_free(addr.rrblock.rrdata);  
@@ -1102,6 +1107,7 @@ int extract_addresses(struct dns_header *header, size_t qlen, char *name, time_t
 		      cpp->addr.cname.target.cache = newc;
 		      cpp->addr.cname.uid = newc->uid;
 		    }
+		  send_dns_data_to_dp(original_name, &addr, ttl,  F_FORWARD | F_NEG | flags | (secure ? F_DNSSECOK : 0));
 		}
 	    }
 	}
