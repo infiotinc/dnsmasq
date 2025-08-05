@@ -622,7 +622,7 @@ struct crec *cache_insert(char *name, union all_addr *addr, unsigned short class
       if (daemon->min_cache_ttl != 0 && daemon->min_cache_ttl > ttl)
 	ttl = daemon->min_cache_ttl;
     }	
-  
+
   return really_insert(name, addr, class, now, ttl, flags);
 }
 
@@ -2435,3 +2435,21 @@ void log_query(unsigned int flags, char *name, union all_addr *addr, char *arg, 
   else
     my_syslog(LOG_INFO, "%s %s%s%s %s%s", source, name, gap, verb, dest, extra);
 }
+
+int send_dns_data_to_dp(char *name, union all_addr *addr, unsigned long ttl, unsigned int flags)
+{
+  //TODO: Add F_IPV6 flag if we are handling IPV6
+  //if (!(flags & F_NEG) && (flags & (F_IPV4 | F_IPV6)))
+  if (!(flags & F_NEG) && (flags & (F_IPV4)))
+  {
+    if(cache_listener_sockfd >= 0 )
+    {
+      char msg[256];
+      char ip_buf[INET6_ADDRSTRLEN];
+      inet_ntop(flags & F_IPV4 ? AF_INET : AF_INET6, addr, ip_buf, ADDRSTRLEN);
+      snprintf(msg, sizeof(msg), "\{\"name\":\"%s\",\"answer\":\"%s\",\"ttl\":%d}\n", name, ip_buf, (int)ttl);
+      write(cache_listener_sockfd, msg, strlen(msg));
+    }
+  }
+}
+
