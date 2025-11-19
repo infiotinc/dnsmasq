@@ -53,17 +53,17 @@ static int connect_to_dp(void) {
 
     sockfd = socket(AF_UNIX, SOCK_SEQPACKET, 0);
     if (sockfd < 0) {
-        my_syslog(LOG_ERR, "DNSMasq: socket() failed: %s", strerror(errno));
+        syslog(LOG_ERR, "DNSMasq: socket() failed: %s", strerror(errno));
         return -1;
     }
 
     if (connect(sockfd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-        my_syslog(LOG_ERR, "DNSMasq: connect() failed: %s", strerror(errno));
+        syslog(LOG_ERR, "DNSMasq: connect() failed: %s", strerror(errno));
         close(sockfd);
         return -1;
     }
 
-    my_syslog(0, "DNSMasq: Connected to Data Plane on %s.", CACHE_SOCKET_PATH);
+    syslog(LOG_INFO, "DNSMasq: Connected to Data Plane on %s.", CACHE_SOCKET_PATH);
     return sockfd;
 }
 
@@ -83,11 +83,11 @@ static void *monitor_dp_socket(void *arg) {
             int ret = recv(cache_listener_sockfd, &dummy, 1, MSG_PEEK | MSG_DONTWAIT);
 
             if (ret == 0) {
-                my_syslog(LOG_ERR, "DNSMasq: socket closed by peer (EOF).");
+                syslog(LOG_ERR, "DNSMasq: socket closed by peer (EOF).");
                 close(cache_listener_sockfd);
                 cache_listener_sockfd = -1;
             } else if (ret < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
-                my_syslog(LOG_ERR, "DNSMasq: socket error: %s", strerror(errno));
+                syslog(LOG_ERR, "DNSMasq: socket error: %s", strerror(errno));
                 close(cache_listener_sockfd);
                 cache_listener_sockfd = -1;
             } else {
